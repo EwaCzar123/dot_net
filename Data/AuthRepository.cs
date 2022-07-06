@@ -1,14 +1,19 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using dot_net.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 namespace dot_net.Data
 {
     public class AuthRepository : IAuthRepository
     {
         private readonly DataContext _context;
+        private readonly IConfiguration _configuration;
 
-        public AuthRepository(DataContext context)
+        public AuthRepository(DataContext context, IConfiguration configuration)
         {
+            _configuration = configuration;
             _context = context;
         }
         public async Task<ServiceResponse<int>> Register(User user, string password)
@@ -37,7 +42,7 @@ namespace dot_net.Data
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower().Equals(username.ToLower()));
             if(user !=null && VerifyPasswordHash(password,user.PasswordHash,user.PasswordSalt))
             {
-                response.Data = user.Id.ToString();
+                response.Data = CreateToken(user);
             }
             else 
             {
@@ -79,6 +84,26 @@ namespace dot_net.Data
                 }
                 return true;
             }
+        }
+        private string CreateToken(User user){
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Username)
+            };
+
+            var key = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes(_configuration.GetSection("AppSettings:Token").Value));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512Signature);
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
+                Subject = new ClaimsIdentity(claims),
+                Expires = System.DateTime.Now.AddHours(4),
+                SigningCredentials = creds
+                
+            };
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var token = tokenHandler.CreateToken(tokenDescriptor);
+            return tokenHandler.WriteToken(token);
         }
     }
 }
